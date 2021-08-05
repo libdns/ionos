@@ -1,6 +1,6 @@
 //  end-to-end test suite, using the original IONOS API service (i.e. no test
 //  doubles - be careful).
-//	set environment variables 
+//	set environment variables
 //    LIBDNS_IONOS_TEST_TOKEN - API token
 //	  LIBDNS_IONOS_TEST_ZONE - domain
 // before running the test.
@@ -44,6 +44,11 @@ func setupTestRecords(t *testing.T, p *ionos.Provider) ([]libdns.Record, testRec
 			Name:  "test3",
 			Value: "test3",
 			TTL:   ttl,
+		}, {
+			Type:  "TXT",
+			Name:  "test4",
+			Value: "test4",
+			TTL:   0,
 		},
 	}
 
@@ -87,18 +92,21 @@ func Test_AppendRecords(t *testing.T) {
 
 	testCases := []struct {
 		records  []libdns.Record
-		expected []libdns.Record}{
+		expected []libdns.Record
+	}{
 		{
 			// multiple records
 			records: []libdns.Record{
 				{Type: "TXT", Name: "test_1", Value: "test_1", TTL: ttl},
 				{Type: "TXT", Name: "test_2", Value: "test_2", TTL: ttl},
 				{Type: "TXT", Name: "test_3", Value: "test_3", TTL: ttl},
+				{Type: "TXT", Name: "test_4", Value: "test_3", TTL: 0},
 			},
 			expected: []libdns.Record{
 				{Type: "TXT", Name: "test_1", Value: "test_1", TTL: ttl},
 				{Type: "TXT", Name: "test_2", Value: "test_2", TTL: ttl},
 				{Type: "TXT", Name: "test_3", Value: "test_3", TTL: ttl},
+				{Type: "TXT", Name: "test_4", Value: "test_3", TTL: 0},
 			},
 		},
 		{
@@ -243,6 +251,12 @@ func Test_SetRecords(t *testing.T) {
 			Name:  "new_test2",
 			Value: "new_test2",
 			TTL:   ttl,
+		},
+		{
+			Type:  "TXT",
+			Name:  "new_test3",
+			Value: "new_test3",
+			TTL:   0,
 		},
 	}
 

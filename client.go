@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"time"
 
@@ -51,9 +50,20 @@ type record struct {
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Content  string `json:"content"`
-	TTL      int    `json:"ttl"`
+	TTL      *int   `json:"ttl,omitempty"`
 	Prio     int    `json:"prio"`
 	Disabled bool   `json:"disabled,omitempty"` // TODO default=true
+}
+
+// IONOS does not accept TTL values < 60, and returns status 400. If the
+// TTL is 0, we leave the field empty, by setting the struct value to nil.
+func optTTL(ttl float64) *int {
+	var intTTL *int
+	if ttl > 0 {
+		tmp := int(ttl)
+		intTTL = &tmp
+	}
+	return intTTL
 }
 
 func doRequest(token string, request *http.Request) ([]byte, error) {
@@ -177,7 +187,7 @@ func createRecord(ctx context.Context, token string, zoneName string, r libdns.R
 			// IONOS: Name is fully qualified
 			Name:    libdns.AbsoluteName(r.Name, zoneName),
 			Content: r.Value,
-			TTL:     int(r.TTL.Seconds()),
+			TTL:     optTTL(r.TTL.Seconds()),
 		}}
 
 	reqBuffer, err := json.Marshal(reqData)
@@ -199,7 +209,7 @@ func createRecord(ctx context.Context, token string, zoneName string, r libdns.R
 	if err != nil {
 		// Thats bad, the record was created, but we can not read it ?!
 		// in this case we just return an empty ID
-		log.Printf("ERROR could not find record: %+v", err)
+		// log.Printf("ERROR could not find record: %+v", err)
 	}
 
 	return libdns.Record{
@@ -238,7 +248,7 @@ func updateRecord(ctx context.Context, token string, zone string, r libdns.Recor
 		Type:    r.Type,
 		Name:    libdns.AbsoluteName(r.Name, zone),
 		Content: r.Value,
-		TTL:     int(r.TTL.Seconds()),
+		TTL:     optTTL(r.TTL.Seconds()),
 	}
 
 	reqBuffer, err := json.Marshal(reqData)
