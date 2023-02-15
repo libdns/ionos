@@ -1,7 +1,7 @@
 # IONOS DNS API for `libdns`
 
 This package implements the libdns interfaces for the [IONOS DNS
-API (beta)](https://developer.hosting.ionos.de/docs/dns)
+API](https://developer.hosting.ionos.de/docs/dns)
 
 ## Authenticating
 
