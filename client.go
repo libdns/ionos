@@ -197,23 +197,26 @@ func createRecord(ctx context.Context, token string, zoneName string, r libdns.R
 
 	uri := fmt.Sprintf("%s/zones/%s/records", APIEndpoint, zoneResp.ID)
 	req, err := http.NewRequestWithContext(ctx, "POST", uri, bytes.NewBuffer(reqBuffer))
-	_, err = doRequest(token, req) // no data is returned on success, just 201
-
 	if err != nil {
 		return libdns.Record{}, err
 	}
 
-	// re-read the record so we get it's ID. IONOS API does not return the
-	// ID currently in the response.
-	createdRec, err := findRecordInZone(ctx, token, zoneName, libdns.AbsoluteName(r.Name, zoneName), r.Type)
+	// as result of the POST, a zoneDescriptor array is returned
+	data, err := doRequest(token, req)
 	if err != nil {
-		// Thats bad, the record was created, but we can not read it ?!
-		// in this case we just return an empty ID
-		// log.Printf("ERROR could not find record: %+v", err)
+		return libdns.Record{}, err
+	}
+	zones := make([]zoneDescriptor, 0)
+	if err = json.Unmarshal(data, &zones); err != nil {
+		return libdns.Record{}, err
+	}
+
+	if len(zones) != 1 {
+		return libdns.Record{}, fmt.Errorf("unexpected response from create record (size mismatch)")
 	}
 
 	return libdns.Record{
-		ID:   createdRec.ID,
+		ID:   zones[0].ID,
 		Type: r.Type,
 		// always return partially qualified name, relative to zone for libdns
 		Name:  libdns.RelativeName(unFQDN(r.Name), zoneName),
