@@ -6,15 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
-	"time"
-
-	"github.com/libdns/libdns"
+	"net/url"
 )
 
 const (
 	APIEndpoint = "https://api.hosting.ionos.com/dns/v1"
+	maxRetries  = 3
 )
 
 type getAllZonesResponse struct {
@@ -57,7 +56,7 @@ type record struct {
 
 // IONOS does not accept TTL values < 60, and returns status 400. If the
 // TTL is 0, we leave the field empty, by setting the struct value to nil.
-func optTTL(ttl float64) *int {
+func ionosTTL(ttl float64) *int {
 	var intTTL *int
 	if ttl > 0 {
 		tmp := int(ttl)
@@ -71,7 +70,10 @@ func doRequest(token string, request *http.Request) ([]byte, error) {
 	request.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{} // no timeout set because request is w/ context
+	//	fmt.Printf(">>> HTTP req: %+v\n\n", request)
 	response, err := client.Do(request)
+
+	//	fmt.Printf("<<< HTTP res: %+v\n\n", response)
 	if err != nil {
 		return nil, err
 	}
@@ -80,11 +82,12 @@ func doRequest(token string, request *http.Request) ([]byte, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("%s (%d)", http.StatusText(response.StatusCode), response.StatusCode)
 	}
-	return ioutil.ReadAll(response.Body)
+	return io.ReadAll(response.Body)
+
 }
 
 // GET /v1/zones
-func getAllZones(ctx context.Context, token string) (getAllZonesResponse, error) {
+func ionosGetAllZones(ctx context.Context, token string) (getAllZonesResponse, error) {
 	uri := fmt.Sprintf("%s/zones", APIEndpoint)
 	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
 	data, err := doRequest(token, req)
@@ -99,25 +102,25 @@ func getAllZones(ctx context.Context, token string) (getAllZonesResponse, error)
 	return getAllZonesResponse{zones}, err
 }
 
-// findZoneDescriptor finds the zoneDescriptor for the named zoned in all zones
-func findZoneDescriptor(ctx context.Context, token string, zoneName string) (zoneDescriptor, error) {
-	allZones, err := getAllZones(ctx, token)
-	if err != nil {
-		return zoneDescriptor{}, err
-	}
-	for _, zone := range allZones.Zones {
-		if zone.Name == zoneName {
-			return zone, nil
-		}
-	}
-	return zoneDescriptor{}, fmt.Errorf("zone not found")
-}
-
-// getZone reads a zone by it's IONOS zoneID
+// ionosGetZone reads the contents of zone by it's IONOS zoneID, optionally filtering for
+// a specific recordType and recordName.
 // /v1/zones/{zoneId}
-func getZone(ctx context.Context, token string, zoneID string) (getZoneResponse, error) {
-	uri := fmt.Sprintf("%s/zones/%s", APIEndpoint, zoneID)
-	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
+func ionosGetZone(ctx context.Context, token string, zoneID string, recordType, recordName string) (getZoneResponse, error) {
+	u, err := url.Parse(APIEndpoint)
+	if err != nil {
+		return getZoneResponse{}, err
+	}
+	u = u.JoinPath("zones", zoneID)
+	queryString := u.Query()
+	if recordType != "" {
+		queryString.Set("recordType", recordType)
+	}
+	if recordName != "" {
+		queryString.Set("recordName", recordName)
+	}
+	u.RawQuery = queryString.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	data, err := doRequest(token, req)
 	var result getZoneResponse
 	if err != nil {
@@ -128,111 +131,32 @@ func getZone(ctx context.Context, token string, zoneID string) (getZoneResponse,
 	return result, err
 }
 
-// findRecordInZone searches all records in the given zone for a record with
-// the given name and type and returns this record on success
-func findRecordInZone(ctx context.Context, token, zoneName, name, typ string) (zoneRecord, error) {
-	zoneResp, err := getZoneByName(ctx, token, zoneName)
+// ionosFindRecordInZone is a convenience function to search all records in the
+// given zone for a record with the given name and type and returns this record
+// on success
+func ionosFindRecordInZone(ctx context.Context, token string, zoneID, typ, name string) (zoneRecord, error) {
+	resp, err := ionosGetZone(ctx, token, zoneID, typ, name)
 	if err != nil {
 		return zoneRecord{}, err
 	}
-
-	for _, r := range zoneResp.Records {
-		if r.Name == name && r.Type == typ {
-			return r, nil
-		}
+	if len(resp.Records) < 1 {
+		return zoneRecord{}, fmt.Errorf("record not found in zone")
 	}
-	return zoneRecord{}, fmt.Errorf("record not found")
+	// TODO what if > 1?
+	return resp.Records[0], nil
 }
 
-// getZoneByName reads a zone by it's zone name, requiring 2 REST calls to
-// the IONOS API
-func getZoneByName(ctx context.Context, token, zoneName string) (getZoneResponse, error) {
-	zoneDes, err := findZoneDescriptor(ctx, token, zoneName)
-	if err != nil {
-		return getZoneResponse{}, err
-	}
-	return getZone(ctx, token, zoneDes.ID)
-}
-
-// getAllRecords returns all records from the given zone
-func getAllRecords(ctx context.Context, token string, zoneName string) ([]libdns.Record, error) {
-	zoneResp, err := getZoneByName(ctx, token, zoneName)
-	if err != nil {
-		return nil, err
-	}
-	records := []libdns.Record{}
-	for _, r := range zoneResp.Records {
-		records = append(records, libdns.Record{
-			ID:   r.ID,
-			Type: r.Type,
-			// libdns Name is partially qualified, relative to zone
-			Name:  libdns.RelativeName(r.Name, zoneResp.Name),
-			Value: r.Content,
-			TTL:   time.Duration(r.TTL) * time.Second,
-		})
-	}
-	return records, nil
-}
-
-// createRecord creates a DNS record in the given zone
-// POST /v1/zones/{zoneId}/records
-func createRecord(ctx context.Context, token string, zoneName string, r libdns.Record) (libdns.Record, error) {
-	zoneResp, err := getZoneByName(ctx, token, zoneName)
-	if err != nil {
-		return libdns.Record{}, err
-	}
-
-	reqData := []record{
-		{Type: r.Type,
-			// IONOS: Name is fully qualified
-			Name:    libdns.AbsoluteName(r.Name, zoneName),
-			Content: r.Value,
-			TTL:     optTTL(r.TTL.Seconds()),
-		}}
-
-	reqBuffer, err := json.Marshal(reqData)
-	if err != nil {
-		return libdns.Record{}, err
-	}
-
-	uri := fmt.Sprintf("%s/zones/%s/records", APIEndpoint, zoneResp.ID)
-	req, err := http.NewRequestWithContext(ctx, "POST", uri, bytes.NewBuffer(reqBuffer))
-	if err != nil {
-		return libdns.Record{}, err
-	}
-
-	// as result of the POST, a zoneDescriptor array is returned
-	data, err := doRequest(token, req)
-	if err != nil {
-		return libdns.Record{}, err
-	}
-	zones := make([]zoneDescriptor, 0)
-	if err = json.Unmarshal(data, &zones); err != nil {
-		return libdns.Record{}, err
-	}
-
-	if len(zones) != 1 {
-		return libdns.Record{}, fmt.Errorf("unexpected response from create record (size mismatch)")
-	}
-
-	return libdns.Record{
-		ID:   zones[0].ID,
-		Type: r.Type,
-		// always return partially qualified name, relative to zone for libdns
-		Name:  libdns.RelativeName(unFQDN(r.Name), zoneName),
-		Value: r.Value,
-		TTL:   r.TTL,
-	}, nil
-}
-
+// ionosDeleteRecord deletes the given record
 // DELETE /v1/zones/{zoneId}/records/{recordId}
-func deleteRecord(ctx context.Context, token, zoneName string, record libdns.Record) error {
-	zoneResp, err := getZoneByName(ctx, token, zoneName)
-	if err != nil {
-		return err
+func ionosDeleteRecord(ctx context.Context, token string, zoneID, id string) error {
+
+	if id == "" {
+		return fmt.Errorf("no record id provided")
 	}
+
 	req, err := http.NewRequestWithContext(ctx, "DELETE",
-		fmt.Sprintf("%s/zones/%s/records/%s", APIEndpoint, zoneResp.ID, record.ID), nil)
+		fmt.Sprintf("%s/zones/%s/records/%s", APIEndpoint, zoneID, id), nil)
+
 	if err != nil {
 		return err
 	}
@@ -240,47 +164,61 @@ func deleteRecord(ctx context.Context, token, zoneName string, record libdns.Rec
 	return err
 }
 
-// /v1/zones/{zoneId}/records/{recordId}
-func updateRecord(ctx context.Context, token string, zone string, r libdns.Record) (libdns.Record, error) {
-	zoneDes, err := getZoneByName(ctx, token, zone)
+// ionosCreateRecord creates a batch of DNS record in the given zone
+// POST /v1/zones/{zoneId}/records
+func ionosCreateRecords(
+	ctx context.Context,
+	token string,
+	zoneID string,
+	records []record) ([]zoneRecord, error) {
+
+	reqBuffer, err := json.Marshal(records)
 	if err != nil {
-		return libdns.Record{}, err
+		return nil, err
 	}
 
-	reqData := record{
-		Type:    r.Type,
-		Name:    libdns.AbsoluteName(r.Name, zone),
-		Content: r.Value,
-		TTL:     optTTL(r.TTL.Seconds()),
+	uri := fmt.Sprintf("%s/zones/%s/records", APIEndpoint, zoneID)
+	req, err := http.NewRequestWithContext(ctx, "POST", uri, bytes.NewBuffer(reqBuffer))
+	if err != nil {
+		return nil, err
 	}
 
-	reqBuffer, err := json.Marshal(reqData)
+	// as result of the POST, a zoneRecord array is returned
+	res, err := doRequest(token, req)
 	if err != nil {
-		return libdns.Record{}, err
+		return nil, err
+	}
+
+	var zoneRecords []zoneRecord
+	if err = json.Unmarshal(res, &zoneRecords); err != nil {
+		return nil, err
+	}
+	return zoneRecords, nil
+
+}
+
+// ionosUpdateRecord updates the record with id `id` in the given zone
+// TODO check TTL
+// PUT /v1/zones/{zoneId}/records/{recordId}
+func ionosUpdateRecord(ctx context.Context, token string, zoneID, id string, r record) error {
+	if id == "" {
+		return fmt.Errorf("no record id provided")
+	}
+
+	reqBuffer, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Errorf("marshal record for update: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "PUT",
-		fmt.Sprintf("%s/zones/%s/records/%s", APIEndpoint, zoneDes.ID, r.ID),
+		fmt.Sprintf("%s/zones/%s/records/%s", APIEndpoint, zoneID, id),
 		bytes.NewBuffer(reqBuffer))
 
 	if err != nil {
-		return libdns.Record{}, err
+		return err
 	}
 
+	// according to API doc, no response returned here
 	_, err = doRequest(token, req)
-
-	return libdns.Record{
-		ID:    r.ID,
-		Type:  r.Type,
-		Name:  r.Name,
-		Value: r.Value,
-		TTL:   time.Duration(r.TTL) * time.Second,
-	}, err
-}
-
-func createOrUpdateRecord(ctx context.Context, token string, zone string, r libdns.Record) (libdns.Record, error) {
-	if r.ID == "" {
-		return createRecord(ctx, token, zone, r)
-	}
-	return updateRecord(ctx, token, zone, r)
+	return err
 }
