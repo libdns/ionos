@@ -127,29 +127,40 @@ func (p *Provider) DeleteRecords(
 	}
 
 	// ionos api has no batch-delete, delete one record at a time
-	var res []libdns.Record
+	var deleteQueue []libdns.Record // list of record IDs to delete
+
+	// collect IDs
 	for _, r := range records {
 		id := r.ID
 		name := libdns.AbsoluteName(r.Name, zoneDes.Name)
 
 		// no ID provided, search record first
 		if id == "" {
+			// safety: avoid to delete the whole zone
+			if r.Type == "" || name == "" {
+				continue
+			}
 
-			existing, err := ionosFindRecordInZone(ctx, p.AuthAPIToken, zoneDes.ID, r.Type, name)
+			existing, err := ionosFindRecordsInZone(ctx, p.AuthAPIToken, zoneDes.ID, r.Type, name)
 			if err != nil {
 				return nil, fmt.Errorf("find record for deletion: %w", err)
 			}
-			id = existing.ID
+			for _, found := range existing {
+				deleteQueue = append(deleteQueue, fromIonosRecord(found, zoneDes.Name))
+			}
+		} else {
+			deleteQueue = append(deleteQueue, r)
 		}
-
-		err := ionosDeleteRecord(ctx, p.AuthAPIToken, zoneDes.ID, id)
+	}
+	// delete all collected records
+	for _, r := range deleteQueue {
+		err := ionosDeleteRecord(ctx, p.AuthAPIToken, zoneDes.ID, r.ID)
 		if err != nil {
 			return nil, fmt.Errorf("delete record by ID: %w", err)
 		}
-		r.ID = id
-		res = append(res, r)
 	}
-	return res, nil
+
+	return deleteQueue, nil
 }
 
 func (p *Provider) createOrUpdateRecord(
@@ -169,15 +180,19 @@ func (p *Provider) createOrUpdateRecord(
 	// before we create a new record, make sure there is no existing record
 	// of same (type, name). In this case we only update the record
 	name := libdns.AbsoluteName(r.Name, zoneDes.Name)
-	existing, err := ionosFindRecordInZone(ctx, p.AuthAPIToken, zoneDes.ID, r.Type, name)
+	existing, err := ionosFindRecordsInZone(ctx, p.AuthAPIToken, zoneDes.ID, r.Type, name)
 	if err == nil {
-		err := ionosUpdateRecord(ctx, p.AuthAPIToken, zoneDes.ID, existing.ID, toIonosRecord(r, zoneDes.Name))
+		if len(existing) != 1 {
+			return r, fmt.Errorf("found unexpected number of records during delete, expected 1 (%d)", len(existing))
+		}
+		err := ionosUpdateRecord(ctx, p.AuthAPIToken, zoneDes.ID, existing[0].ID, toIonosRecord(r, zoneDes.Name))
 		if err != nil {
 			return r, fmt.Errorf("update found record: %w", err)
 		}
-		r.ID = existing.ID
+		r.ID = existing[0].ID
 		return r, nil
 	}
+
 	created, err := ionosCreateRecords(ctx, p.AuthAPIToken, zoneDes.ID, []record{toIonosRecord(r, zoneDes.Name)})
 	if err != nil {
 		return r, fmt.Errorf("create new record: %w", err)

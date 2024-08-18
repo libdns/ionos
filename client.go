@@ -130,19 +130,18 @@ func ionosGetZone(ctx context.Context, token string, zoneID string, recordType, 
 	return result, err
 }
 
-// ionosFindRecordInZone is a convenience function to search all records in the
+// ionosFindRecordsInZone is a convenience function to search all records in the
 // given zone for a record with the given name and type and returns this record
 // on success
-func ionosFindRecordInZone(ctx context.Context, token string, zoneID, typ, name string) (zoneRecord, error) {
+func ionosFindRecordsInZone(ctx context.Context, token string, zoneID, typ, name string) ([]zoneRecord, error) {
 	resp, err := ionosGetZone(ctx, token, zoneID, typ, name)
 	if err != nil {
-		return zoneRecord{}, err
+		return nil, err
 	}
 	if len(resp.Records) < 1 {
-		return zoneRecord{}, fmt.Errorf("record not found in zone")
+		return nil, fmt.Errorf("record not found in zone")
 	}
-	// TODO what if > 1?
-	return resp.Records[0], nil
+	return resp.Records, nil
 }
 
 // ionosDeleteRecord deletes the given record
