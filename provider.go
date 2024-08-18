@@ -131,16 +131,14 @@ func (p *Provider) DeleteRecords(
 
 	// collect IDs
 	for _, r := range records {
-		id := r.ID
-		name := libdns.AbsoluteName(r.Name, zoneDes.Name)
-
 		// no ID provided, search record first
-		if id == "" {
+		if r.ID == "" {
 			// safety: avoid to delete the whole zone
-			if r.Type == "" || name == "" {
+			if r.Type == "" || r.Name == "" {
 				continue
 			}
 
+			name := libdns.AbsoluteName(r.Name, zoneDes.Name)
 			existing, err := ionosFindRecordsInZone(ctx, p.AuthAPIToken, zoneDes.ID, r.Type, name)
 			if err != nil {
 				return nil, fmt.Errorf("find record for deletion: %w", err)

@@ -105,30 +105,30 @@ func Test_AppendRecords(t *testing.T) {
 		{
 			// multiple records
 			records: []libdns.Record{
-				{Type: "TXT", Name: prefix + "_test_1", Value: "val_1", TTL: ttl},
-				{Type: "TXT", Name: prefix + "_test_2", Value: "val_2", TTL: 0},
+				{Type: "TXT", Name: prefix + "_atest_1", Value: "val_1", TTL: ttl},
+				{Type: "TXT", Name: prefix + "_atest_2", Value: "val_2", TTL: 0},
 			},
 			expected: []libdns.Record{
-				{Type: "TXT", Name: prefix + "_test_1", Value: "val_1", TTL: ttl},
-				{Type: "TXT", Name: prefix + "_test_2", Value: "val_2", TTL: time.Hour},
+				{Type: "TXT", Name: prefix + "_atest_1", Value: "val_1", TTL: ttl},
+				{Type: "TXT", Name: prefix + "_atest_2", Value: "val_2", TTL: time.Hour},
 			},
 		},
 		{
 			// relative name
 			records: []libdns.Record{
-				{Type: "TXT", Name: prefix + "123.test", Value: "123", TTL: ttl},
+				{Type: "TXT", Name: prefix + "123.atest", Value: "123", TTL: ttl},
 			},
 			expected: []libdns.Record{
-				{Type: "TXT", Name: prefix + "123.test", Value: "123", TTL: ttl},
+				{Type: "TXT", Name: prefix + "123.atest", Value: "123", TTL: ttl},
 			},
 		},
 		{
 			// A records
 			records: []libdns.Record{
-				{Type: "A", Name: prefix + "456.test.", Value: "1.2.3.4", TTL: ttl},
+				{Type: "A", Name: prefix + "456.atest.", Value: "1.2.3.4", TTL: ttl},
 			},
 			expected: []libdns.Record{
-				{Type: "A", Name: prefix + "456.test", Value: "1.2.3.4", TTL: ttl},
+				{Type: "A", Name: prefix + "456.atest", Value: "1.2.3.4", TTL: ttl},
 			},
 		},
 	}
@@ -176,6 +176,7 @@ func Test_DeleteRecords(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				//defer cleanupRecords(t, p, slices.Clone(records))
 				if len(records) != 1 {
 					t.Fatalf("expected only 1 record to be created, but got %d", len(records))
 				}
@@ -207,6 +208,24 @@ func Test_DeleteRecords(t *testing.T) {
 				checkNoRecordExists(t, allRecords, name)
 			})
 	}
+}
+
+func Test_DeleteRecordsWillNotDeleteWithoutTypeOrNameWhenNoIDisGiven(t *testing.T) {
+	p := &ionos.Provider{AuthAPIToken: envToken}
+
+	records := []libdns.Record{
+		{ID: "", Type: "TXT", Name: "", Value: "", TTL: ttl},
+		{ID: "", Type: "", Name: "X", Value: "", TTL: ttl},
+		{ID: "", Type: "", Name: "", Value: "", TTL: ttl}}
+
+	records, err := p.DeleteRecords(context.TODO(), envZone, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("expected no record to be deleted, but got %d", len(records))
+	}
+
 }
 
 // Test_GetRecords creates some records and checks using GetRecords that
