@@ -13,7 +13,6 @@ import (
 
 const (
 	APIEndpoint = "https://api.hosting.ionos.com/dns/v1"
-	maxRetries  = 3
 )
 
 type getAllZonesResponse struct {
