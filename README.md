@@ -60,20 +60,32 @@ tests:
 $ export LIBDNS_IONOS_TEST_ZONE=mydomain.org
 $ export LIBDNS_IONOS_TEST_TOKEN=aaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 $ go  test -v
+go test -v
 === RUN   Test_AppendRecords
---- PASS: Test_AppendRecords (43.01s)
+=== RUN   Test_AppendRecords/testcase_0
+=== RUN   Test_AppendRecords/testcase_1
+=== RUN   Test_AppendRecords/testcase_2
+--- PASS: Test_AppendRecords (6.71s)
+    --- PASS: Test_AppendRecords/testcase_0 (2.51s)
+    --- PASS: Test_AppendRecords/testcase_1 (2.15s)
+    --- PASS: Test_AppendRecords/testcase_2 (2.05s)
 === RUN   Test_DeleteRecords
---- PASS: Test_DeleteRecords (23.91s)
+=== RUN   Test_DeleteRecords/clear_record.ID=true
+=== RUN   Test_DeleteRecords/clear_record.ID=false
+--- PASS: Test_DeleteRecords (9.62s)
+    --- PASS: Test_DeleteRecords/clear_record.ID=true (4.81s)
+    --- PASS: Test_DeleteRecords/clear_record.ID=false (4.80s)
 === RUN   Test_GetRecords
---- PASS: Test_GetRecords (30.96s)
-=== RUN   Test_SetRecords
---- PASS: Test_SetRecords (51.39s)
+--- PASS: Test_GetRecords (4.41s)
+=== RUN   Test_UpdateRecords
+=== RUN   Test_UpdateRecords/clear_record.ID=true
+=== RUN   Test_UpdateRecords/clear_record.ID=false
+--- PASS: Test_UpdateRecords (10.14s)
+    --- PASS: Test_UpdateRecords/clear_record.ID=true (5.84s)
+    --- PASS: Test_UpdateRecords/clear_record.ID=false (4.30s)
 PASS
-ok  	github.com/libdns/ionos	149.277s
+ok  	github.com/libdns/ionos	30.884s
 ```
-
-The tests were taken from the [Hetzner libdns
-module](https://github.com/libdns/hetzner) and are not modified.
 
 ## Author
 
