@@ -109,8 +109,8 @@ func Test_AppendRecords(t *testing.T) {
 				{Type: "TXT", Name: prefix + "_test_2", Value: "val_2", TTL: 0},
 			},
 			expected: []libdns.Record{
-				{Type: "TXT", Name: prefix + "_test_1", Value: "\"val_1\"", TTL: ttl},
-				{Type: "TXT", Name: prefix + "_test_2", Value: "\"val_2\"", TTL: time.Hour},
+				{Type: "TXT", Name: prefix + "_test_1", Value: "val_1", TTL: ttl},
+				{Type: "TXT", Name: prefix + "_test_2", Value: "val_2", TTL: time.Hour},
 			},
 		},
 		{
@@ -119,7 +119,7 @@ func Test_AppendRecords(t *testing.T) {
 				{Type: "TXT", Name: prefix + "123.test", Value: "123", TTL: ttl},
 			},
 			expected: []libdns.Record{
-				{Type: "TXT", Name: prefix + "123.test", Value: "\"123\"", TTL: ttl},
+				{Type: "TXT", Name: prefix + "123.test", Value: "123", TTL: ttl},
 			},
 		},
 		{
@@ -185,7 +185,7 @@ func Test_DeleteRecords(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				checkExcatlyOneRecordExists(t, allRecords, "TXT", name, "\"my record\"")
+				checkExcatlyOneRecordExists(t, allRecords, "TXT", name, "my record")
 
 				// test with- and without a recordID
 				if clearID {

@@ -6,6 +6,7 @@ package ionos
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,12 +30,19 @@ func toIonosRecord(r libdns.Record, zoneName string) record {
 }
 
 func fromIonosRecord(r zoneRecord, zoneName string) libdns.Record {
+	// IONOS returns TXT records quoted: remove quotes
+	var value string
+	if strings.ToUpper(r.Type) == "TXT" {
+		value, _ = strconv.Unquote(r.Content)
+	} else {
+		value = r.Content
+	}
 	return libdns.Record{
 		ID:   r.ID,
 		Type: r.Type,
 		// libdns Name is partially qualified, relative to zone, Ionos absoulte
 		Name:  libdns.RelativeName(r.Name, zoneName), // use r.rootName for zoneName TODO?
-		Value: r.Content,
+		Value: value,
 		TTL:   time.Duration(r.TTL) * time.Second,
 	}
 }
