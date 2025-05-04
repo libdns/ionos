@@ -11,14 +11,16 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/netip"
 	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/libdns/ionos"
 	"github.com/libdns/libdns"
+
+	"github.com/libdns/ionos"
 )
 
 var (
@@ -37,6 +39,10 @@ func randSeq(n int) string {
 	return string(b)
 }
 
+func randTestSeq() string {
+	return fmt.Sprintf("test_%s", randSeq(8))
+}
+
 func cleanupRecords(t *testing.T, p *ionos.Provider, r []libdns.Record) {
 	t.Helper()
 	_, err := p.DeleteRecords(context.TODO(), envZone, r)
@@ -48,15 +54,16 @@ func cleanupRecords(t *testing.T, p *ionos.Provider, r []libdns.Record) {
 func checkExcatlyOneRecordExists(
 	t *testing.T,
 	records []libdns.Record,
-	recordType, name, value string) {
-
+	recordType, name, value string,
+) {
 	t.Helper()
 	name = strings.ToLower(name)
 	found := 0
 	for _, r := range records {
-		if r.Name == name {
+		rr := r.RR()
+		if rr.Name == name {
 			found++
-			if r.Type != recordType || r.Value != value {
+			if rr.Type != recordType || rr.Data != value {
 				t.Fatalf("expected to find excatly one %s record with name %s and value of %s", recordType, name, value)
 			}
 		}
@@ -69,22 +76,25 @@ func checkExcatlyOneRecordExists(
 func checkNoRecordExists(
 	t *testing.T,
 	records []libdns.Record,
-	name string) {
-
+	name string,
+) {
 	t.Helper()
 	for _, r := range records {
-		if r.Name == strings.ToLower(name) {
-			t.Fatalf("expected to find no record named %s", r.Name)
+		rr := r.RR()
+		if rr.Name == strings.ToLower(name) {
+			t.Fatalf("expected to find no record named %s", rr.Name)
 		}
 	}
 }
 
 func containsRecord(probe libdns.Record, records []libdns.Record) *libdns.Record {
+	probeRR := probe.RR()
 	for _, r := range records {
-		if r.Name == probe.Name &&
-			r.Type == probe.Type &&
-			r.Value == probe.Value &&
-			r.TTL == probe.TTL {
+		rr := r.RR()
+		if rr.Name == probeRR.Name &&
+			rr.Type == probeRR.Type &&
+			rr.Data == probeRR.Data &&
+			rr.TTL == probeRR.TTL {
 			return &r
 		}
 	}
@@ -97,7 +107,7 @@ func containsRecord(probe libdns.Record, records []libdns.Record) *libdns.Record
 func Test_AppendRecords(t *testing.T) {
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
-	prefix := randSeq(32)
+	prefix := randTestSeq()
 	testCases := []struct {
 		records  []libdns.Record
 		expected []libdns.Record
@@ -105,30 +115,30 @@ func Test_AppendRecords(t *testing.T) {
 		{
 			// multiple records
 			records: []libdns.Record{
-				{Type: "TXT", Name: prefix + "_atest_1", Value: "val_1", TTL: ttl},
-				{Type: "TXT", Name: prefix + "_atest_2", Value: "val_2", TTL: 0},
+				libdns.TXT{Name: prefix + "_1", Text: "val_1", TTL: ttl},
+				libdns.TXT{Name: prefix + "_2", Text: "val_2", TTL: 0},
 			},
 			expected: []libdns.Record{
-				{Type: "TXT", Name: prefix + "_atest_1", Value: "val_1", TTL: ttl},
-				{Type: "TXT", Name: prefix + "_atest_2", Value: "val_2", TTL: time.Hour},
+				libdns.TXT{Name: prefix + "_1", Text: "val_1", TTL: ttl},
+				libdns.TXT{Name: prefix + "_2", Text: "val_2", TTL: time.Hour},
 			},
 		},
 		{
 			// relative name
 			records: []libdns.Record{
-				{Type: "TXT", Name: prefix + "123.atest", Value: "123", TTL: ttl},
+				libdns.TXT{Name: prefix + "123.atest", Text: "123", TTL: ttl},
 			},
 			expected: []libdns.Record{
-				{Type: "TXT", Name: prefix + "123.atest", Value: "123", TTL: ttl},
+				libdns.TXT{Name: prefix + "123.atest", Text: "123", TTL: ttl},
 			},
 		},
 		{
 			// A records
 			records: []libdns.Record{
-				{Type: "A", Name: prefix + "456.atest.", Value: "1.2.3.4", TTL: ttl},
+				libdns.Address{Name: prefix + "456.atest", IP: netip.MustParseAddr("1.2.3.4"), TTL: ttl},
 			},
 			expected: []libdns.Record{
-				{Type: "A", Name: prefix + "456.atest", Value: "1.2.3.4", TTL: ttl},
+				libdns.Address{Name: prefix + "456.atest", IP: netip.MustParseAddr("1.2.3.4"), TTL: ttl},
 			},
 		},
 	}
@@ -152,12 +162,6 @@ func Test_AppendRecords(t *testing.T) {
 						t.Fatalf("record %+v was not created", r)
 					}
 				}
-				// each created record must have an ID
-				for _, r := range result {
-					if r.ID == "" {
-						t.Fatalf("no ID set in result %+v", r)
-					}
-				}
 			})
 	}
 }
@@ -165,58 +169,47 @@ func Test_AppendRecords(t *testing.T) {
 func Test_DeleteRecords(t *testing.T) {
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
-	// run the test 2 times: first delete with the record ID, second run without
-	for _, clearID := range []bool{true, false} {
-		t.Run(fmt.Sprintf("clear record.ID=%v", clearID),
-			func(t *testing.T) {
-				// create a random TXT record
-				name := randSeq(32)
-				records := []libdns.Record{{Type: "TXT", Name: name, Value: "my record", TTL: ttl}}
-				records, err := p.SetRecords(context.TODO(), envZone, records)
-				if err != nil {
-					t.Fatal(err)
-				}
-				//defer cleanupRecords(t, p, slices.Clone(records))
-				if len(records) != 1 {
-					t.Fatalf("expected only 1 record to be created, but got %d", len(records))
-				}
-
-				// make sure the record exists in the zone
-				allRecords, err := p.GetRecords(context.TODO(), envZone)
-				if err != nil {
-					t.Fatal(err)
-				}
-				checkExcatlyOneRecordExists(t, allRecords, "TXT", name, "my record")
-
-				// test with- and without a recordID
-				if clearID {
-					records[0].ID = ""
-				}
-				records, err = p.DeleteRecords(context.TODO(), envZone, records)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if len(records) != 1 {
-					t.Fatalf("expected only 1 record to be deleted, but got %d", len(records))
-				}
-
-				// make sure the record is no longer in the zone
-				allRecords, err = p.GetRecords(context.TODO(), envZone)
-				if err != nil {
-					t.Fatal(err)
-				}
-				checkNoRecordExists(t, allRecords, name)
-			})
+	// create a random TXT record
+	name := randTestSeq()
+	records := []libdns.Record{libdns.TXT{Name: name, Text: "my record", TTL: ttl}}
+	records, err := p.SetRecords(context.TODO(), envZone, records)
+	if err != nil {
+		t.Fatal(err)
 	}
+	// defer cleanupRecords(t, p, slices.Clone(records))
+	if len(records) != 1 {
+		t.Fatalf("expected only 1 record to be created, but got %d", len(records))
+	}
+
+	// make sure the record exists in the zone
+	allRecords, err := p.GetRecords(context.TODO(), envZone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkExcatlyOneRecordExists(t, allRecords, "TXT", name, "my record")
+
+	records, err = p.DeleteRecords(context.TODO(), envZone, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected only 1 record to be deleted, but got %d", len(records))
+	}
+
+	// make sure the record is no longer in the zone
+	allRecords, err = p.GetRecords(context.TODO(), envZone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkNoRecordExists(t, allRecords, name)
 }
 
-func Test_DeleteRecordsWillNotDeleteWithoutTypeOrNameWhenNoIDisGiven(t *testing.T) {
+func Test_DeleteRecordsWillNotDeleteWithoutName(t *testing.T) {
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
 	records := []libdns.Record{
-		{ID: "", Type: "TXT", Name: "", Value: "", TTL: ttl},
-		{ID: "", Type: "", Name: "X", Value: "", TTL: ttl},
-		{ID: "", Type: "", Name: "", Value: "", TTL: ttl}}
+		libdns.TXT{Name: "", Text: "", TTL: ttl},
+	}
 
 	records, err := p.DeleteRecords(context.TODO(), envZone, records)
 	if err != nil {
@@ -225,7 +218,6 @@ func Test_DeleteRecordsWillNotDeleteWithoutTypeOrNameWhenNoIDisGiven(t *testing.
 	if len(records) != 0 {
 		t.Fatalf("expected no record to be deleted, but got %d", len(records))
 	}
-
 }
 
 // Test_GetRecords creates some records and checks using GetRecords that
@@ -234,21 +226,26 @@ func Test_GetRecords(t *testing.T) {
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
 	// create some test records
-	prefix := randSeq(32)
+	prefix := randTestSeq()
 	records := []libdns.Record{
-		{Type: "TXT", Name: prefix + "_test_1", Value: "val_1", TTL: ttl},
-		{Type: "A", Name: prefix + "_test_2", Value: "1.2.3.4", TTL: ttl}}
+		libdns.TXT{Name: prefix + "_test_1", Text: "val_1", TTL: ttl},
+		libdns.Address{Name: prefix + "_test_2", IP: netip.MustParseAddr("1.2.3.4"), TTL: ttl},
+	}
 	created, err := p.AppendRecords(context.TODO(), envZone, records)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cleanupRecords(t, p, created)
+
 	if len(created) != len(records) {
 		t.Fatalf("expected %d records to be created, got %d", len(records), len(created))
 	}
-	defer cleanupRecords(t, p, created)
 
 	// read all records of the zone and check that our records are contained
 	allRecords, err := p.GetRecords(context.TODO(), envZone)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(allRecords) < len(records) {
 		t.Fatalf("expected to read at least %d records from zone, but got %d", len(records), len(allRecords))
 	}
@@ -256,52 +253,48 @@ func Test_GetRecords(t *testing.T) {
 	for _, r := range created {
 		found := containsRecord(r, allRecords)
 		if found == nil {
-			t.Fatalf("Record %s not found", r.ID)
+			t.Fatalf("Record %+v not found", r)
 		}
-		if found.ID != r.ID {
-			t.Fatalf("Record found but ID differs (%s != %s)", r.ID, found.ID)
-		}
+
+		// TODO compare Records
+		//		if found.ID != r.ID {
+		//			t.Fatalf("Record found but ID differs (%s != %s)", r.ID, found.ID)
+		//		}
 	}
 }
 
 func Test_UpdateRecords(t *testing.T) {
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
-	// run the test 2 times: first delete with the record ID, second run without
-	for _, clearID := range []bool{true, false} {
-		t.Run(fmt.Sprintf("clear record.ID=%v", clearID),
-			func(t *testing.T) {
-				// create a random A record
-				name := randSeq(32)
-				records := []libdns.Record{{Type: "A", Name: name, Value: "1.2.3.4", TTL: ttl}}
-				records, err := p.SetRecords(context.TODO(), envZone, records)
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer cleanupRecords(t, p, slices.Clone(records))
-
-				if len(records) != 1 {
-					t.Fatalf("expected only 1 record to be created, but got %d", len(records))
-				}
-
-				// test with- and without a recordID
-				if clearID {
-					records[0].ID = ""
-				}
-				records[0].Value = "1.2.3.5"
-				records, err = p.SetRecords(context.TODO(), envZone, records)
-				if len(records) != 1 {
-					t.Fatalf("expected only 1 record to be updated, but got %d", len(records))
-				}
-
-				// read all records and check for the expected changes
-				records, err = p.GetRecords(context.TODO(), envZone)
-				if err != nil {
-					t.Fatal(err)
-				}
-				checkExcatlyOneRecordExists(t, records, "A", name, "1.2.3.5")
-			})
+	// create a random A record
+	name := randTestSeq()
+	records := []libdns.Record{libdns.Address{Name: name, IP: netip.MustParseAddr("1.2.3.4"), TTL: ttl}}
+	records, err := p.SetRecords(context.TODO(), envZone, records)
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer cleanupRecords(t, p, slices.Clone(records))
+
+	if len(records) != 1 {
+		t.Fatalf("expected only 1 record to be created, but got %d", len(records))
+	}
+
+	// update IP address
+	records = []libdns.Record{libdns.Address{Name: name, IP: netip.MustParseAddr("1.2.3.5"), TTL: ttl}}
+	records, err = p.SetRecords(context.TODO(), envZone, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected only 1 record to be updated, but got %d", len(records))
+	}
+
+	// read all records and check for the expected changes
+	records, err = p.GetRecords(context.TODO(), envZone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkExcatlyOneRecordExists(t, records, "A", name, "1.2.3.5")
 }
 
 func TestMain(m *testing.M) {

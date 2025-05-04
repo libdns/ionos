@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -24,11 +23,22 @@ func main() {
 		AuthAPIToken: token,
 	}
 
+	zones, err := p.ListZones(context.TODO())
+	if err != nil {
+		panic(err)
+	}
+	fmt.Print("Zones:\n")
+	for _, z := range zones {
+		fmt.Printf("%+v\n", z)
+	}
+
+	fmt.Printf("\nRecord in Zone %s\n", zone)
 	records, err := p.GetRecords(context.TODO(), zone)
 	if err != nil {
 		panic(err)
 	}
 
-	out, _ := json.MarshalIndent(records, "", "  ")
-	fmt.Println(string(out))
+	for _, r := range records {
+		fmt.Printf("%+v\n", r.RR())
+	}
 }
