@@ -9,6 +9,7 @@ package ionos_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/netip"
@@ -41,6 +42,15 @@ func randSeq(n int) string {
 
 func randTestSeq() string {
 	return fmt.Sprintf("test_%s", randSeq(8))
+}
+
+// requireEnv skips live API tests when credentials are not configured, so
+// offline unit tests still run.
+func requireEnv(t *testing.T) {
+	t.Helper()
+	if envToken == "" || envZone == "" {
+		t.Skip("LIBDNS_IONOS_TEST_TOKEN or LIBDNS_IONOS_TEST_ZONE not set")
+	}
 }
 
 func cleanupRecords(t *testing.T, p *ionos.Provider, r []libdns.Record) {
@@ -105,6 +115,8 @@ func containsRecord(probe libdns.Record, records []libdns.Record) *libdns.Record
 // that the response returned is as expected. Records are not read back
 // using GetRecords, that's done in Test_GetRecords.
 func Test_AppendRecords(t *testing.T) {
+	requireEnv(t)
+
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
 	prefix := randTestSeq()
@@ -167,6 +179,8 @@ func Test_AppendRecords(t *testing.T) {
 }
 
 func Test_DeleteRecords(t *testing.T) {
+	requireEnv(t)
+
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
 	// create a random TXT record
@@ -205,6 +219,8 @@ func Test_DeleteRecords(t *testing.T) {
 }
 
 func Test_DeleteRecordsWillNotDeleteWithoutName(t *testing.T) {
+	requireEnv(t)
+
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
 	records := []libdns.Record{
@@ -220,9 +236,26 @@ func Test_DeleteRecordsWillNotDeleteWithoutName(t *testing.T) {
 	}
 }
 
+// Test_DeleteRecordsRejectsZoneNotAllowed restricts writes to the test zone
+// and checks that a delete in another zone fails with ErrZoneNotAllowed.
+func Test_DeleteRecordsRejectsZoneNotAllowed(t *testing.T) {
+	p := &ionos.Provider{AuthAPIToken: envToken, AllowedZones: []string{envZone}}
+
+	records := []libdns.Record{
+		libdns.TXT{Name: randTestSeq(), Text: "test", TTL: ttl},
+	}
+
+	_, err := p.DeleteRecords(context.TODO(), "not-"+envZone, records)
+	if !errors.Is(err, ionos.ErrZoneNotAllowed) {
+		t.Fatalf("expected ErrZoneNotAllowed, got %v", err)
+	}
+}
+
 // Test_GetRecords creates some records and checks using GetRecords that
 // the records are returned as expected
 func Test_GetRecords(t *testing.T) {
+	requireEnv(t)
+
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
 	// create some test records
@@ -264,6 +297,8 @@ func Test_GetRecords(t *testing.T) {
 }
 
 func Test_UpdateRecords(t *testing.T) {
+	requireEnv(t)
+
 	p := &ionos.Provider{AuthAPIToken: envToken}
 
 	// create a random A record
@@ -306,7 +341,6 @@ func TestMain(m *testing.M) {
 never run the test with a zone, used in production.
 To run this test, you have to specify 'LIBDNS_IONOS_TEST_TOKEN' and 'LIBDNS_IONOS_TEST_ZONE'.
 Example: "LIBDNS_IONOS_TEST_TOKEN="123.456" LIBDNS_IONOS_TEST_ZONE="my-domain.com" go test ./... -v`)
-		os.Exit(1)
 	}
 
 	os.Exit(m.Run())

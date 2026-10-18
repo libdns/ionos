@@ -5,7 +5,9 @@ package ionos
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,59 @@ type Provider struct {
 	// AuthAPIToken is the IONOS Auth API token -
 	// see https://dns.ionos.com/api-docs#section/Authentication/Auth-API-Token
 	AuthAPIToken string `json:"auth_api_token"`
+
+	// AllowedZones optionally restricts write operations to the listed zones.
+	// Empty means no restriction. Read operations are unaffected.
+	AllowedZones []string `json:"allowed_zones,omitempty"`
+}
+
+// ErrZoneNotAllowed is returned by write operations on a zone not listed in
+// AllowedZones.
+var ErrZoneNotAllowed = errors.New("zone is not in the configured allow-list")
+
+// sameZone compares zone names, ignoring case and trailing dots.
+func sameZone(a, b string) bool {
+	return strings.EqualFold(unFQDN(a), unFQDN(b))
+}
+
+// inZone reports whether name is zone or one of its subdomains.
+func inZone(name, zone string) bool {
+	suffix := "." + strings.ToLower(unFQDN(zone))
+	return sameZone(name, zone) || strings.HasSuffix(strings.ToLower(unFQDN(name)), suffix)
+}
+
+// checkZoneAllowed returns ErrZoneNotAllowed if AllowedZones is set and
+// either zone is not listed or a record name lies outside zone (e.g. an
+// absolute name like "x.other.com.").
+func (p *Provider) checkZoneAllowed(zone string, records []libdns.Record) error {
+	if len(p.AllowedZones) == 0 {
+		return nil
+	}
+
+	allowed := slices.ContainsFunc(p.AllowedZones, func(z string) bool { return sameZone(z, zone) })
+	if !allowed {
+		return fmt.Errorf("%w: %q", ErrZoneNotAllowed, zone)
+	}
+
+	for _, r := range records {
+		name := libdns.AbsoluteName(r.RR().Name, zone)
+		if !inZone(name, zone) {
+			return fmt.Errorf("%w: record %q outside zone %q", ErrZoneNotAllowed, name, zone)
+		}
+	}
+	return nil
+}
+
+// findWritableZone resolves zone for a write operation, enforcing AllowedZones.
+func (p *Provider) findWritableZone(
+	ctx context.Context,
+	zone string,
+	records []libdns.Record,
+) (zoneDescriptor, error) {
+	if err := p.checkZoneAllowed(zone, records); err != nil {
+		return zoneDescriptor{}, err
+	}
+	return p.findZoneByName(ctx, zone)
 }
 
 func toIonosRecord(r libdns.Record, zoneName string) record {
@@ -61,7 +116,7 @@ func (p *Provider) findZoneByName(ctx context.Context, zoneName string) (zoneDes
 
 	// find the desired zone
 	for _, zone := range zones.Zones {
-		if zone.Name == unFQDN(zoneName) {
+		if sameZone(zone.Name, zoneName) {
 			return zone, nil
 		}
 	}
@@ -98,7 +153,7 @@ func (p *Provider) AppendRecords(
 	zone string,
 	records []libdns.Record,
 ) ([]libdns.Record, error) {
-	zoneDes, err := p.findZoneByName(ctx, zone)
+	zoneDes, err := p.findWritableZone(ctx, zone, records)
 	if err != nil {
 		return nil, fmt.Errorf("find zone: %w", err)
 	}
@@ -159,7 +214,7 @@ func (p *Provider) DeleteRecords(
 	zone string,
 	records []libdns.Record,
 ) ([]libdns.Record, error) {
-	zoneDes, err := p.findZoneByName(ctx, zone)
+	zoneDes, err := p.findWritableZone(ctx, zone, records)
 	if err != nil {
 		return nil, fmt.Errorf("find zone: %w", err)
 	}
@@ -233,7 +288,7 @@ func (p *Provider) createOrUpdateRecord(
 func (p *Provider) SetRecords(ctx context.Context, zone string, records []libdns.Record) ([]libdns.Record, error) {
 	var res []libdns.Record
 
-	zoneDes, err := p.findZoneByName(ctx, zone)
+	zoneDes, err := p.findWritableZone(ctx, zone, records)
 	if err != nil {
 		return nil, fmt.Errorf("find zone: %w", err)
 	}
