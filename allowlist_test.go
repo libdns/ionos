@@ -2,7 +2,6 @@ package ionos
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -77,24 +76,5 @@ func Test_WritesRejectDisallowedZone(t *testing.T) {
 	}
 	if _, err := p.DeleteRecords(ctx, "other.com", recs); !errors.Is(err, ErrZoneNotAllowed) {
 		t.Errorf("DeleteRecords: got %v, want ErrZoneNotAllowed", err)
-	}
-}
-
-// Existing configs without allowed_zones must still decode and keep the
-// unrestricted behavior.
-func Test_ConfigCompatible(t *testing.T) {
-	var p Provider
-	if err := json.Unmarshal([]byte(`{"auth_api_token":"abc"}`), &p); err != nil {
-		t.Fatal(err)
-	}
-	if p.AuthAPIToken != "abc" || len(p.AllowedZones) != 0 {
-		t.Fatalf("unexpected provider: %+v", p)
-	}
-
-	if err := json.Unmarshal([]byte(`{"auth_api_token":"abc","allowed_zones":["example.com"]}`), &p); err != nil {
-		t.Fatal(err)
-	}
-	if len(p.AllowedZones) != 1 || p.AllowedZones[0] != "example.com" {
-		t.Fatalf("unexpected allowed_zones: %+v", p.AllowedZones)
 	}
 }

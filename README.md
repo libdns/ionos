@@ -76,7 +76,7 @@ tests:
 ```console
 $ export LIBDNS_IONOS_TEST_ZONE=mydomain.org
 $ export LIBDNS_IONOS_TEST_TOKEN=aaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-$ go  test -v
+$ go test -v
 === RUN   Test_checkZoneAllowed
 === RUN   Test_checkZoneAllowed/empty_list_allows_all
 === RUN   Test_checkZoneAllowed/exact_match
@@ -93,30 +93,42 @@ $ go  test -v
     --- PASS: Test_checkZoneAllowed/case_insensitive (0.00s)
     --- PASS: Test_checkZoneAllowed/not_listed (0.00s)
     --- PASS: Test_checkZoneAllowed/subzone_not_matched (0.00s)
+=== RUN   Test_checkZoneAllowedRecordNames
+=== RUN   Test_checkZoneAllowedRecordNames/relative
+=== RUN   Test_checkZoneAllowedRecordNames/apex
+=== RUN   Test_checkZoneAllowedRecordNames/absolute_inside
+=== RUN   Test_checkZoneAllowedRecordNames/absolute_outside
+=== RUN   Test_checkZoneAllowedRecordNames/suffix_trick
+=== RUN   Test_checkZoneAllowedRecordNames/no_allow-list
+--- PASS: Test_checkZoneAllowedRecordNames (0.00s)
+    --- PASS: Test_checkZoneAllowedRecordNames/relative (0.00s)
+    --- PASS: Test_checkZoneAllowedRecordNames/apex (0.00s)
+    --- PASS: Test_checkZoneAllowedRecordNames/absolute_inside (0.00s)
+    --- PASS: Test_checkZoneAllowedRecordNames/absolute_outside (0.00s)
+    --- PASS: Test_checkZoneAllowedRecordNames/suffix_trick (0.00s)
+    --- PASS: Test_checkZoneAllowedRecordNames/no_allow-list (0.00s)
 === RUN   Test_WritesRejectDisallowedZone
 --- PASS: Test_WritesRejectDisallowedZone (0.00s)
-=== RUN   Test_ConfigCompatible
---- PASS: Test_ConfigCompatible (0.00s)
 === RUN   Test_AppendRecords
 === RUN   Test_AppendRecords/testcase_0
 === RUN   Test_AppendRecords/testcase_1
 === RUN   Test_AppendRecords/testcase_2
---- PASS: Test_AppendRecords (3.40s)
-    --- PASS: Test_AppendRecords/testcase_0 (1.41s)
-    --- PASS: Test_AppendRecords/testcase_1 (0.87s)
-    --- PASS: Test_AppendRecords/testcase_2 (1.12s)
+--- PASS: Test_AppendRecords (3.05s)
+    --- PASS: Test_AppendRecords/testcase_0 (1.11s)
+    --- PASS: Test_AppendRecords/testcase_1 (1.14s)
+    --- PASS: Test_AppendRecords/testcase_2 (0.80s)
 === RUN   Test_DeleteRecords
---- PASS: Test_DeleteRecords (1.28s)
+--- PASS: Test_DeleteRecords (1.22s)
 === RUN   Test_DeleteRecordsWillNotDeleteWithoutName
---- PASS: Test_DeleteRecordsWillNotDeleteWithoutName (0.05s)
+--- PASS: Test_DeleteRecordsWillNotDeleteWithoutName (0.06s)
 === RUN   Test_DeleteRecordsRejectsZoneNotAllowed
 --- PASS: Test_DeleteRecordsRejectsZoneNotAllowed (0.00s)
 === RUN   Test_GetRecords
---- PASS: Test_GetRecords (1.77s)
+--- PASS: Test_GetRecords (1.64s)
 === RUN   Test_UpdateRecords
---- PASS: Test_UpdateRecords (1.68s)
+--- PASS: Test_UpdateRecords (1.70s)
 PASS
-ok  	github.com/libdns/ionos	8.190s
+ok  	github.com/libdns/ionos	7.676s
 ```
 
 ## Author
